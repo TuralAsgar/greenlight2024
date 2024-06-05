@@ -28,7 +28,6 @@ func (app *application) serve() error {
 	//we instruct our server to stop accepting any new HTTP requests,
 	//and give any in-flight requests a ‘grace period’ of 30 seconds to
 	//complete before the application is terminated.
-
 	shutdownError := make(chan error)
 
 	go func() {
