@@ -3,14 +3,15 @@ package main
 import (
 	"errors"
 	"fmt"
-	"golang.org/x/time/rate"
-	"greenlight.turalasgar.com/internal/data"
-	"greenlight.turalasgar.com/internal/validator"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
+	"greenlight.turalasgar.com/internal/data"
+	"greenlight.turalasgar.com/internal/validator"
 )
 
 func (app *application) recoverPanic(next http.Handler) http.Handler {
@@ -161,4 +162,46 @@ func (app *application) authenticate(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (app *application) requireAuthenticatedUser(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		user := app.contextGetUser(r)
+
+		if user.IsAnonymous() {
+			app.authenticationRequiredResponse(w, r)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Notice here that our requireActivatedUser() middleware has a slightly different signature
+// to the other middleware we’ve built in this book. Instead of accepting and returning a http.Handler,
+// it accepts and returns a http.HandlerFunc.
+// This is a small change, but it makes it possible to wrap our /v1/movie** handler functions directly
+// with this middleware, without needing to make any further conversions.
+// Checks that a user is both authenticated and activated.
+func (app *application) requireActivatedUser(next http.HandlerFunc) http.HandlerFunc {
+	// Rather than returning this http.HandlerFunc we assign it to the variable fn.
+	fn := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := app.contextGetUser(r)
+
+		if user.IsAnonymous() {
+			app.authenticationRequiredResponse(w, r)
+			return
+		}
+
+		if !user.Activated {
+			app.inactiveAccountResponse(w, r)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+
+	// Wrap fn with the requireAuthenticatedUser() middleware before returning it.
+	return app.requireAuthenticatedUser(fn)
 }
