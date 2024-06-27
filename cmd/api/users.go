@@ -139,7 +139,6 @@ func (app *application) activateUserHandler(w http.ResponseWriter, r *http.Reque
 
 	// Save the updated user record in our database, checking for any edit conflicts in
 	// the same way that we did for our movie records.
-
 	err = app.models.Users.Update(user)
 	if err != nil {
 		switch {
@@ -152,6 +151,10 @@ func (app *application) activateUserHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	// If everything went successfully, then we delete all activation tokens for the user.
+	// it’s important to note that having additional activation endpoint allow users to potentially
+	// have multiple valid activation tokens ‘on the go’ at any one time. That’s fine — but you just
+	// need to make sure that you delete all the activation tokens for a user once they’ve successfully
+	// activated (not just the token that they used).
 	err = app.models.Tokens.DeleteAllForUser(data.ScopeActivation, user.ID)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
