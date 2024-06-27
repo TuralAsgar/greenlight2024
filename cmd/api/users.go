@@ -80,13 +80,13 @@ func (app *application) registerUserHandler(w http.ResponseWriter, r *http.Reque
 		// templates, we create a map to act as a 'holding structure' for the data. This
 		// contains the plaintext version of the activation token for the user, along
 		// with their ID.
-		data := map[string]any{
+		emailData := map[string]any{
 			"activationToken": token.Plaintext,
 			"userID":          user.ID,
 		}
 
 		// Send the welcome email, passing in the map above as dynamic data.
-		err = app.mailer.Send(user.Email, "user_welcome.tmpl", data)
+		err = app.mailer.Send(user.Email, "user_welcome.tmpl", emailData)
 		if err != nil {
 			// Importantly, if there is an error sending the email then we use the
 			// app.logger.Error() helper to manage it, instead of the
@@ -159,6 +159,75 @@ func (app *application) activateUserHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	err = app.writeJSON(w, http.StatusOK, envelope{"user": user}, nil)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
+}
+
+// Verify the password reset token and set a new password for the user.
+func (app *application) updateUserPasswordHandler(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Password       string `json:"password"`
+		TokenPlainText string `json:"token"`
+	}
+
+	err := app.readJSON(w, r, &input)
+	if err != nil {
+		app.badRequestResponse(w, r, err)
+		return
+	}
+
+	v := validator.New()
+
+	data.ValidatePasswordPlaintext(v, input.Password)
+	data.ValidateTokenPlaintext(v, input.TokenPlainText)
+
+	if !v.Valid() {
+		app.failedValidationResponse(w, r, v.Errors)
+		return
+	}
+
+	user, err := app.models.Users.GetForToken(data.ScopePasswordReset, input.TokenPlainText)
+	if err != nil {
+		switch {
+		case errors.Is(err, data.ErrRecordNotFound):
+			v.AddError("token", "invalid or expired password token")
+			app.failedValidationResponse(w, r, v.Errors)
+		default:
+			app.serverErrorResponse(w, r, err)
+		}
+		return
+	}
+
+	err = user.Password.Set(input.Password)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
+
+	// Save the updated user record in our database, checking for any edit conflicts as normal.
+	err = app.models.Users.Update(user)
+	if err != nil {
+		switch {
+		case errors.Is(err, data.ErrEditConflict):
+			app.editConflictResponse(w, r)
+		default:
+			app.serverErrorResponse(w, r, err)
+		}
+		return
+	}
+
+	// If everything was successful, then delete all password reset tokens for the user.
+	err = app.models.Tokens.DeleteAllForUser(data.ScopePasswordReset, user.ID)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
+
+	env := envelope{"message": "your password was successfully reset"}
+
+	err = app.writeJSON(w, http.StatusOK, env, nil)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
