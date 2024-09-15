@@ -109,8 +109,7 @@ func main() {
 
 	logger.Info("database connection pool established")
 
-	// Publish a new "version" variable in the expvar handler containing our application
-	// version number (currently the constant "1.0.0").
+	// Publish a new "version" variable in the expvar handler containing our application version number
 	expvar.NewString("version").Set(version)
 
 	// Publish the number of active goroutines
